@@ -8,20 +8,18 @@ Multiple similar variables should follow similar naming conventions. If a physic
 
 ### Object Coupling
 ---
-Objects and classes should avoid depending too heavily on too many other objects. A well-designed object should interact only with the collaborators that are necessary for its responsibility, rather than directly managing or knowing the details of large portions of the system. High coupling makes code harder to test, modify, and reuse. If changes to one class frequently require changes to several others, or if one object must understand the internal structure of another to do its work, the design is likely too tightly coupled.
+Objects and classes should avoid depending too heavily on too many other objects. A well-designed object should interact only with the collaborators that are necessary for its responsibility, rather than directly managing or knowing the details of large portions of the system. If changes to one class frequently require changes to several others, or if one object must understand the internal structure of another to do its work, the design is likely too tightly coupled.
 
-This project will evaluate whether objects depend on too many external classes, whether they instantiate concrete dependencies unnecessarily instead of receiving them in a cleaner way, and whether they rely on deep chains of method calls or attribute access. For example, instances of code like `a.getB().getC().doThing()` may indicate that one object knows too much about the internal organization of another.
-
-Another aim of this project with regard to coupling may include checks for patterns such as circular dependencies, classes that serve as overly central hubs, and methods that interact more with foreign objects than with their own state. In general, lower coupling is preferred because it improves modularity, readability, and maintainability.
+Objects should not depend on too many external classes, instantiate concrete dependencies unnecessarily instead of receiving them in a cleaner way, or rely on deep chains of method calls or attribute access. For example, instances of code like `a.getB().getC().doThing()` may indicate that one object knows too much about the internal organization of another.
 
 ### Object Cohesion
 ---
+Objects should have clearly defined scopes and boundaries. Functionality should be relevant within an object's scope and intended lifespan. Classes and modules should have one primary responsibility. Methods and attributes within the same object should be meaningfully related. If large groups of fields are only used by small subsets of methods, the object may represent multiple hidden concepts that should be split into separate objects.
 
 ### Namespace Pollution
 ---
-including unnecessary imports and dependencies
+Namespaces should remain clean and intentional. Unnecessary imports, broadly exposed names, and generic global identifiers should be avoided. Imports should be intentional and impactful. Imports that are used for one or few function calls should be strictly justified.
 
 ### Undocumented Assumptions
 ---
-especially important in large nested ifs or complicated logic
-key non-trivial invariants when they are used should be noted, as well as documented with variable declaration
+Assumptions that are required for correctness should be visible in code, especially in complex control flow, nested conditionals, or domain-heavy logic. Key invariants should be documented near where they are introduced and where they are relied upon. If logic assumes that a list is sorted, a value is non-null, a timestamp is UTC, or a state machine is already initialized, that expectation should be explicitly stated. When assumptions cannot be enforced directly, they should still be communicated clearly. Non-trivial and significant preconditions and postconditions should be explicitly mentioned.
