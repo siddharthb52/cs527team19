@@ -16,6 +16,13 @@ Another aim of this project with regard to coupling may include checks for patte
 
 ### Object Cohesion
 ---
+Objects and classes should have a clear and focused responsibility. A well-designed object represents a single concept and contains behavior that is closely related to that concept. When a class takes on multiple unrelated responsibilities, it becomes harder to understand, maintain, and reuse.
+
+Low cohesion often appears when a class contains methods or variables that are only loosely related, or when parts of the class operate on entirely different subsets of data. For example, a class that handles both file I/O and business logic, or one that mixes data processing with user interface behavior, may be doing too many things at once.
+
+This project evaluates whether a class’s methods and variables are meaningfully related to one another, and whether the class can be understood as representing a single coherent idea. It also checks for cases where methods interact with disjoint sets of attributes, or where a class contains functionality that would be better separated into multiple classes.
+
+In general, higher cohesion is preferred because it improves readability, testability, and modularity. Classes with strong cohesion are easier to reason about, easier to modify without unintended side effects, and more likely to be reusable in different contexts.
 
 ### Namespace Pollution
 ---
