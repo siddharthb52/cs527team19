@@ -137,6 +137,7 @@ def extract_generic_variables(source_code: str, extension: str) -> list[str]:
 
 
 def extract_variables(file_path: Path) -> list[str]:
+    """Return unique variable-like names from *file_path* using AST (.py) or regex heuristics."""
     try:
         source = file_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -236,11 +237,11 @@ def analyse_file(
 
     if not variables:
         if verbose:
-            print(f"  [skip] {rel_path} — no variables found", file=sys.stderr)
+            print(f"  [skip] {rel_path} - no variables found", file=sys.stderr)
         return []
 
     if verbose:
-        print(f"  [scan] {rel_path} — {len(variables)} variable(s)", file=sys.stderr)
+        print(f"  [scan] {rel_path} - {len(variables)} variable(s)", file=sys.stderr)
 
     # Build a short context snippet (first 60 lines) to help Copilot
     try:
@@ -303,6 +304,7 @@ def format_report(all_records: list[dict]) -> str:
 
 
 def main() -> None:
+    """CLI: scan a tree, describe names via `gh copilot explain`, print or write the report."""
     parser = argparse.ArgumentParser(
         description="Analyse variable names in source files using GitHub Copilot.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
