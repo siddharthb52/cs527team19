@@ -60,7 +60,9 @@ def check_file(path: Path, source: str) -> list[Issue]:
         tree = ast.parse(source)
     except SyntaxError as e:
         issues.append(
-            Issue(rel, e.lineno or 1, e.offset or 0, "namespace", "SYNTAX", str(e.args[0]))
+            Issue(
+                rel, e.lineno or 1, e.offset or 0, "namespace", "SYNTAX", str(e.args[0])
+            )
         )
         return issues
 
@@ -141,7 +143,9 @@ def check_file(path: Path, source: str) -> list[Issue]:
     # Inner scopes are skipped: loop variables and comprehensions would dominate.
     ambiguous = frozenset({"l", "O", "I"})
     # Single-letter names allowed here (common in math or science code). Extend the set if needed.
-    allowed_short = frozenset({"_", "i", "j", "k", "n", "x", "y", "z", "t", "e", "f", "g", "h"})
+    allowed_short = frozenset(
+        {"_", "i", "j", "k", "n", "x", "y", "z", "t", "e", "f", "g", "h"}
+    )
     for stmt in tree.body:
         targets: list[ast.expr] = []
         if isinstance(stmt, ast.Assign):
@@ -202,7 +206,11 @@ def check_file(path: Path, source: str) -> list[Issue]:
         # `def foo: pass` placeholders are ignored.
         if len(stmt.body) == 1 and isinstance(stmt.body[0], ast.Pass):
             continue
-        kind = "function" if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) else "class"
+        kind = (
+            "function"
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+            else "class"
+        )
         issues.append(
             Issue(
                 rel,
