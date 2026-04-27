@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -202,6 +203,20 @@ def build_prompt(variable_name: str, files: set[Path], root: Path) -> str:
     )
 
 
+def build_judgement_prompt(variable_name: str, description: str) -> str:
+    """Build a prompt that scores one variable description against README axes."""
+    return (
+        "You are evaluating Python code quality signals from a variable description. "
+        f"Variable name: '{variable_name}'. "
+        f"Description: '{description}'. "
+        "Score each axis from 0 to 2 where 0=good/clear, 1=possible concern, 2=likely problem. "
+        "Axes: naming, coupling, cohesion, namespace_pollution, undocumented_assumptions. "
+        "Return strict JSON only between <START> and <END> with keys: "
+        "naming, coupling, cohesion, namespace_pollution, undocumented_assumptions, summary. "
+        "The summary must be one short sentence."
+    )
+
+
 def ask_copilot(prompt: str, timeout: int = 60) -> str:
     """Run `gh copilot -p` with a natural-language prompt and return the response."""
     try:
@@ -227,6 +242,41 @@ def ask_copilot(prompt: str, timeout: int = 60) -> str:
     return (result.stdout or b"").decode("utf-8", errors="replace").strip()
 
 
+def ask_gemini(prompt: str, model: str) -> str:
+    """Run a Gemini API completion and return plain text."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set. Export it before running with --provider gemini."
+        )
+    try:
+        from google import genai
+    except ImportError as exc:
+        raise RuntimeError(
+            "google-genai is not installed. Install with `pip install google-genai`."
+        ) from exc
+
+    client = genai.Client(api_key=api_key)
+    try:
+        result = client.models.generate_content(model=model, contents=prompt)
+    except Exception as exc:
+        raise RuntimeError(f"Gemini request failed: {exc}") from exc
+
+    text = getattr(result, "text", None)
+    if not text:
+        raise RuntimeError("Gemini returned an empty response.")
+    return text.strip()
+
+
+def ask_llm(prompt: str, provider: str, timeout: int, model: str) -> str:
+    """Dispatch completion call to the selected provider."""
+    if provider == "copilot":
+        return ask_copilot(prompt, timeout=timeout)
+    if provider == "gemini":
+        return ask_gemini(prompt, model=model)
+    raise RuntimeError(f"Unsupported provider: {provider}")
+
+
 def clean_response(response: str) -> str:
     """Extract the part of the response between <START> and <END> tokens."""
     start_token = "<START>"
@@ -241,8 +291,22 @@ def clean_response(response: str) -> str:
     return response[start_idx + len(start_token) : end_idx].strip()
 
 
-def describe_variables(root: Path, timeout: int, verbose: bool) -> dict[str, str]:
-    """Return a map of variable name to Copilot-produced purpose/usage summary."""
+def clean_json_response(response: str) -> dict[str, object]:
+    """Extract and parse JSON from a Copilot response with <START>/<END> tokens."""
+    payload = clean_response(response)
+    try:
+        value = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Could not parse JSON response: {exc}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("Expected JSON object in Copilot response.")
+    return value
+
+
+def describe_variables(
+    root: Path, timeout: int, verbose: bool, provider: str, model: str
+) -> dict[str, str]:
+    """Return a map of variable name to LLM-produced purpose/usage summary."""
     variables = discover_project_variables(root)
     descriptions: dict[str, str] = {}
 
@@ -253,15 +317,15 @@ def describe_variables(root: Path, timeout: int, verbose: bool) -> dict[str, str
         if verbose:
             file_count = len(variables[variable_name])
             print(
-                f"[copilot] {variable_name} ({file_count} file{'s' if file_count != 1 else ''})",
+                f"[{provider}] {variable_name} ({file_count} file{'s' if file_count != 1 else ''})",
                 file=sys.stderr,
             )
 
         prompt = build_prompt(variable_name, variables[variable_name], root)
         try:
-            response = ask_copilot(prompt, timeout=timeout)
+            response = ask_llm(prompt, provider=provider, timeout=timeout, model=model)
             descriptions[variable_name] = (
-                clean_response(response) or "(no Copilot response)"
+                clean_response(response) or "(no LLM response)"
             )
         except RuntimeError as exc:
             descriptions[variable_name] = f"(error: {exc})"
@@ -271,10 +335,60 @@ def describe_variables(root: Path, timeout: int, verbose: bool) -> dict[str, str
     return descriptions
 
 
+def judge_descriptions(
+    descriptions: dict[str, str],
+    timeout: int,
+    verbose: bool,
+    provider: str,
+    model: str,
+) -> dict[str, dict[str, object]]:
+    """Return a map of variable name to README-axis judgement."""
+    judgements: dict[str, dict[str, object]] = {}
+    for variable_name in sorted(descriptions):
+        description = descriptions[variable_name]
+        if description.startswith("(error:"):
+            judgements[variable_name] = {
+                "naming": None,
+                "coupling": None,
+                "cohesion": None,
+                "namespace_pollution": None,
+                "undocumented_assumptions": None,
+                "summary": "Skipped due to description error.",
+            }
+            continue
+
+        if verbose:
+            print(f"[judge:{provider}] {variable_name}", file=sys.stderr)
+        prompt = build_judgement_prompt(variable_name, description)
+        try:
+            response = ask_llm(prompt, provider=provider, timeout=timeout, model=model)
+            parsed = clean_json_response(response)
+            judgements[variable_name] = {
+                "naming": parsed.get("naming"),
+                "coupling": parsed.get("coupling"),
+                "cohesion": parsed.get("cohesion"),
+                "namespace_pollution": parsed.get("namespace_pollution"),
+                "undocumented_assumptions": parsed.get("undocumented_assumptions"),
+                "summary": parsed.get("summary", ""),
+            }
+        except RuntimeError as exc:
+            judgements[variable_name] = {
+                "naming": None,
+                "coupling": None,
+                "cohesion": None,
+                "namespace_pollution": None,
+                "undocumented_assumptions": None,
+                "summary": f"Error while judging: {exc}",
+            }
+            if verbose:
+                print(f"[error] judge {variable_name}: {exc}", file=sys.stderr)
+    return judgements
+
+
 def main() -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Format a Python project with Black and map variable names to purpose/usage using Copilot.",
+        description="Format project with Black, run static checks, and run LLM analysis.",
     )
     parser.add_argument(
         "project_path",
@@ -287,11 +401,28 @@ def main() -> None:
         help="Timeout in seconds for each Copilot request (default: 60).",
     )
     parser.add_argument(
+        "--provider",
+        choices=("copilot", "gemini"),
+        default="copilot",
+        help="LLM provider for variable descriptions and judgements.",
+    )
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Model name for --provider gemini (default: models/gemini-2.5-flash).",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Print progress information to stderr.",
     )
+    parser.add_argument(
+        "--skip-judgement",
+        action="store_true",
+        help="Skip the second AI pass that scores each variable description.",
+    )
     args = parser.parse_args()
+    model = args.model or "models/gemini-2.5-flash"
 
     project_root = Path(args.project_path).resolve()
     if not project_root.is_dir():
@@ -326,9 +457,44 @@ def main() -> None:
 
     if args.verbose:
         print(f"Scanning Python files under {project_root}", file=sys.stderr)
-    descriptions = describe_variables(project_root, args.timeout, args.verbose)
+    if args.verbose:
+        print(f"Using provider={args.provider} model={model}", file=sys.stderr)
+    descriptions = describe_variables(
+        project_root,
+        args.timeout,
+        args.verbose,
+        provider=args.provider,
+        model=model,
+    )
 
-    print(json.dumps(descriptions, indent=2, sort_keys=True, ensure_ascii=False))
+    judgements: dict[str, dict[str, object]] = {}
+    if not args.skip_judgement:
+        if args.verbose:
+            print("Running second AI pass for README-axis judgement", file=sys.stderr)
+        judgements = judge_descriptions(
+            descriptions,
+            args.timeout,
+            args.verbose,
+            provider=args.provider,
+            model=model,
+        )
+
+    output = {
+        "descriptions": descriptions,
+        "judgements": judgements,
+        "static_issues": [
+            {
+                "path": issue.path,
+                "line": issue.line,
+                "column": issue.column,
+                "axis": issue.axis,
+                "code": issue.code,
+                "message": issue.message,
+            }
+            for issue in all_issues
+        ],
+    }
+    print(json.dumps(output, indent=2, sort_keys=True, ensure_ascii=False))
 
 
 if __name__ == "__main__":
