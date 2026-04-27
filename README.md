@@ -23,3 +23,54 @@ Namespaces should remain clean and intentional. Unnecessary imports, broadly exp
 ### Undocumented Assumptions
 ---
 Assumptions that are required for correctness should be visible in code, especially in complex control flow, nested conditionals, or domain-heavy logic. Key invariants should be documented near where they are introduced and where they are relied upon. If logic assumes that a list is sorted, a value is non-null, a timestamp is UTC, or a state machine is already initialized, that expectation should be explicitly stated. When assumptions cannot be enforced directly, they should still be communicated clearly. Non-trivial and significant preconditions and postconditions should be explicitly mentioned.
+
+## Running the linter
+
+The entry point is `smartlint.py`. From the repo root (with a virtual environment recommended):
+
+1. Install Black (the script runs it first on the project path you pass).
+
+   `pip install black`
+
+2. Run the tool on a directory (often `.` for the current repo, or another project path).
+
+The script does three things in order:
+
+- formats Python under the path with Black
+- runs static checks from `checks.py` (README-style heuristics)
+- runs two LLM passes when enabled: short description per variable-like name, then a second pass that scores README axes for that description
+
+Final output is **JSON on stdout** with keys `descriptions`, `judgements`, and `static_issues`.
+
+### GitHub Copilot (CLI)
+
+Requirements:
+
+- [GitHub CLI](https://cli.github.com/) installed and on your PATH
+- `gh auth login` completed for the account you want to use
+- Copilot access that allows the built-in `gh copilot` command (some org accounts block CLI Copilot even when IDE Copilot works)
+
+Example:
+
+`python smartlint.py /path/to/project --provider copilot --verbose`
+
+Notes:
+
+- `--verbose` prints progress to stderr. Omit it if you only want the JSON on stdout.
+- `--timeout` controls how long each Copilot subprocess may run (seconds, default 60).
+- `--skip-judgement` skips the second LLM pass (fewer API calls).
+
+### Google Gemini (API)
+
+Requirements:
+
+- `pip install google-genai`
+- environment variable `GEMINI_API_KEY` set in your shell (PowerShell example: `$env:GEMINI_API_KEY="your_key"`)
+
+Pick a model your key can use, then pass it with `--model`.
+
+Example:
+
+`python smartlint.py /path/to/project --provider gemini --model models/gemini-2.5-flash --verbose`
+
+If you omit `--model`, the default is `models/gemini-2.5-flash`.
